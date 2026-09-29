@@ -1,6 +1,6 @@
 const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
 const state={products:[],customers:[],movements:[],sales:[],cart:[],apiUrl:localStorage.getItem("minipos_api")||"",businessName:localStorage.getItem("minipos_name")||"Mi negocio"};
-let deferredInstall=null;
+let deferredInstall=null,scannerSession=null,zxingLoad=null;
 
 function money(n){return `S/ ${Number(n||0).toFixed(2)}`}
 function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2600)}
@@ -21,7 +21,7 @@ async function sync(){
   }catch(e){$("#statusBox").textContent="No se pudo sincronizar. Se muestran los datos locales.";toast(e.message)}
 }
 function updateConnection(){const ok=!!state.apiUrl;$("#connectionBadge").className="badge "+(ok?"online":"offline");$("#connectionBadge").textContent=ok?"Configurado":"Sin configurar";$("#apiUrl").value=state.apiUrl;$("#businessName").value=state.businessName}
-function nav(view){$$(".view").forEach(x=>x.classList.remove("active"));$("#"+view).classList.add("active");$$(".nav").forEach(x=>x.classList.toggle("active",x.dataset.view===view));renderAll()}
+function nav(view){if(scannerSession)stopBarcodeScanner();["#saleScanner","#productScanner"].forEach(id=>$(id).hidden=true);$$(".view").forEach(x=>x.classList.remove("active"));$("#"+view).classList.add("active");$$(".nav").forEach(x=>x.classList.toggle("active",x.dataset.view===view));renderAll()}
 function renderDashboard(){
  const today=new Date().toISOString().slice(0,10), ss=state.sales.filter(s=>String(s.date||"").slice(0,10)===today);
  $("#kpiSales").textContent=money(ss.reduce((a,s)=>a+Number(s.total||0),0));$("#kpiTickets").textContent=`${ss.length} comprobantes`;
@@ -55,12 +55,13 @@ async function completeSale(){
  if(!state.cart.length)return toast("Agrega productos al carrito.");
  const total=Math.max(0,state.cart.reduce((a,x)=>a+x.price*x.qty,0)-Number($("#discount").value||0));
  const sale={id:"V-"+Date.now(),date:new Date().toISOString(),items:state.cart.map(x=>({code:x.code,name:x.name,qty:x.qty,price:x.price})),total,payment:$("#paymentMethod").value,customer:$("#saleCustomer").value,reference:$("#paymentRef").value};
- try{if(state.apiUrl){const r=await api("sale",sale);if(!r.ok)throw Error(r.message||"Error al registrar")}else state.sales.push(sale);
+ try{if(state.apiUrl){const r=await api("sale",sale);if(!r.ok)throw Error(r.message||"Error al registrar")}
  state.cart.forEach(x=>{const p=state.products.find(p=>String(p.code)===String(x.code));if(p)p.stock-=x.qty});state.sales.push(...(state.apiUrl?[]:[sale]));saveLocal();state.cart=[];$("#discount").value=0;$("#paymentRef").value="";toast("Venta registrada correctamente.");renderAll();if(state.apiUrl)sync();
  }catch(e){toast(e.message)}
 }
 async function registerProduct(data){
  const p={code:data.code.trim(),name:data.name.trim(),category:data.category.trim(),price:Number(data.price),stock:Number(data.stock),minStock:Number(data.minStock||0)};
+ if(state.products.some(existing=>String(existing.code).toLowerCase()===p.code.toLowerCase()))return toast("Ya existe un producto con ese código.");
  try{if(state.apiUrl){const r=await api("product",p);if(!r.ok)throw Error(r.message||"No se pudo guardar")}state.products.push(p);saveLocal();$("#productDialog").close();renderAll();toast("Producto guardado.");if(state.apiUrl)sync()}catch(e){toast(e.message)}
 }
 async function registerCustomer(data){
@@ -74,11 +75,54 @@ async function registerEntry(){
 }
 function searchAdd(){const q=$("#productSearch").value.trim().toLowerCase();const p=state.products.find(x=>String(x.code).toLowerCase()===q||String(x.name).toLowerCase().includes(q));if(p)addToCart(p.code);else toast("No se encontró el producto.")}
 async function scan(){if(!("BarcodeDetector" in window))return toast("Tu navegador no admite lectura nativa de códigos. Usa el buscador o Chrome/Android actualizado.");const supported=await BarcodeDetector.getSupportedFormats();const input=document.createElement("input");input.type="file";input.accept="image/*";input.capture="environment";input.onchange=async()=>{const file=input.files[0];if(!file)return;const bitmap=await createImageBitmap(file);const detector=new BarcodeDetector({formats:supported});const codes=await detector.detect(bitmap);if(codes[0])addToCart(codes[0].rawValue);else toast("No se detectó ningún código.");};input.click()}
+function loadZXing(){
+ if(window.ZXingBrowser?.BrowserMultiFormatReader)return Promise.resolve(window.ZXingBrowser);
+ if(!zxingLoad)zxingLoad=new Promise((resolve,reject)=>{const script=document.createElement("script");script.src="https://unpkg.com/@zxing/browser@0.1.5/umd/zxing-browser.min.js";script.onload=()=>window.ZXingBrowser?.BrowserMultiFormatReader?resolve(window.ZXingBrowser):reject(new Error("No se pudo cargar el lector de códigos."));script.onerror=()=>reject(new Error("No se pudo cargar el lector de códigos."));document.head.append(script)}).catch(error=>{zxingLoad=null;throw error});
+ return zxingLoad;
+}
+async function startBarcodeScanner(video,status,onDetected){
+ if(!navigator.mediaDevices?.getUserMedia)throw new Error("La cámara requiere HTTPS y permiso del navegador.");
+ const session={video,status,onDetected,stream:null,controls:null,frame:null,busy:false};scannerSession=session;status.textContent="Solicitando acceso a la cámara...";
+ if("BarcodeDetector" in window){
+  session.detector=new window.BarcodeDetector();session.stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:"environment"}}});
+  if(scannerSession!==session){session.stream.getTracks().forEach(track=>track.stop());return}
+  video.srcObject=session.stream;await video.play();status.textContent="Apunta la cámara al código de barras.";
+  const detectFrame=async()=>{if(scannerSession!==session)return;session.frame=requestAnimationFrame(detectFrame);if(session.busy||video.readyState<2)return;session.busy=true;try{const codes=await session.detector.detect(video);if(codes[0]?.rawValue){stopBarcodeScanner();onDetected(codes[0].rawValue)}}catch{status.textContent="Mantén el código enfocado dentro de la imagen."}finally{session.busy=false}};
+  session.frame=requestAnimationFrame(detectFrame);return;
+ }
+ const ZXingBrowser=await loadZXing();if(scannerSession!==session)return;
+ const reader=new ZXingBrowser.BrowserMultiFormatReader();
+ session.controls=await reader.decodeFromConstraints({audio:false,video:{facingMode:{ideal:"environment"}}},video,result=>{if(!result||scannerSession!==session)return;const value=result.getText();stopBarcodeScanner();onDetected(value)});
+ if(scannerSession===session)status.textContent="Apunta la cámara al código de barras.";else session.controls?.stop();
+}
+function stopBarcodeScanner(){
+ const session=scannerSession;if(!session)return;scannerSession=null;if(session.frame)cancelAnimationFrame(session.frame);session.controls?.stop();session.stream?.getTracks().forEach(track=>track.stop());session.video.srcObject=null;
+}
+function cameraErrorMessage(error){
+ if(["NotAllowedError","SecurityError"].includes(error.name))return "Permite el acceso a la cámara y abre la app mediante HTTPS.";
+ if(error.name==="NotFoundError")return "No se encontró una cámara disponible.";
+ if(["NotReadableError","AbortError"].includes(error.name))return "No se pudo iniciar la cámara. Cierra otras aplicaciones que puedan estar usándola.";
+ return error.message||"No se pudo abrir la cámara.";
+}
+function openBarcodeScanner(panelId,videoId,statusId,onDetected){
+ const panel=$("#"+panelId),status=$("#"+statusId);panel.hidden=false;
+ startBarcodeScanner($("#"+videoId),status,onDetected).catch(error=>{stopBarcodeScanner();status.textContent=cameraErrorMessage(error);toast(status.textContent)});
+}
+function closeBarcodeScanner(panelId){stopBarcodeScanner();$("#"+panelId).hidden=true}
+function scanSale(){openBarcodeScanner("saleScanner","saleScannerVideo","saleScannerStatus",code=>{$("#saleScanner").hidden=true;addToCart(code)})}
+function scanProduct(){
+ openBarcodeScanner("productScanner","productScannerVideo","productScannerStatus",code=>{
+  $("#productScanner").hidden=true;
+  if(state.products.some(product=>String(product.code).toLowerCase()===String(code).toLowerCase())){toast("Ese código ya está registrado en el inventario.");return}
+  $("#productForm").reset();$("#productForm").elements.namedItem("code").value=code;$("#productDialog").showModal();$("#productForm").elements.namedItem("name").focus();toast("Código leído. Completa los datos del producto.");
+ });
+}
 
 $$(".nav").forEach(b=>b.onclick=()=>nav(b.dataset.view));$$("[data-go]").forEach(b=>b.onclick=()=>nav(b.dataset.go));
-$("#newProductBtn").onclick=()=>$("#productDialog").showModal();$("#newCustomerBtn").onclick=()=>$("#customerDialog").showModal();$("#scanBtn").onclick=scan;$("#addSearchBtn").onclick=searchAdd;$("#productSearch").addEventListener("keydown",e=>{if(e.key==="Enter")searchAdd()});$("#discount").oninput=renderCart;$("#completeSale").onclick=completeSale;$("#clearCart").onclick=()=>{state.cart=[];renderCart()};$("#registerEntry").onclick=registerEntry;$("#inventorySearch").oninput=renderProducts;$("#refreshBtn").onclick=sync;
+$("#newProductBtn").onclick=()=>$("#productDialog").showModal();$("#newCustomerBtn").onclick=()=>$("#customerDialog").showModal();$("#scanBtn").onclick=scanSale;$("#productScanBtn").onclick=scanProduct;$("#closeSaleScanner").onclick=()=>closeBarcodeScanner("saleScanner");$("#closeProductScanner").onclick=()=>closeBarcodeScanner("productScanner");$("#addSearchBtn").onclick=searchAdd;$("#productSearch").addEventListener("keydown",e=>{if(e.key==="Enter")searchAdd()});$("#discount").oninput=renderCart;$("#completeSale").onclick=completeSale;$("#clearCart").onclick=()=>{state.cart=[];renderCart()};$("#registerEntry").onclick=registerEntry;$("#inventorySearch").oninput=renderProducts;$("#refreshBtn").onclick=sync;
 $("#productForm").onsubmit=e=>{e.preventDefault();registerProduct(Object.fromEntries(new FormData(e.target)))};$("#customerForm").onsubmit=e=>{e.preventDefault();registerCustomer(Object.fromEntries(new FormData(e.target)))};
 $("#saveSettings").onclick=()=>{state.apiUrl=$("#apiUrl").value.trim();state.businessName=$("#businessName").value.trim()||"Mi negocio";localStorage.setItem("minipos_api",state.apiUrl);localStorage.setItem("minipos_name",state.businessName);updateConnection();toast("Configuración guardada.");sync()};
 window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredInstall=e;$("#installBtn").classList.remove("hidden")});$("#installBtn").onclick=async()=>{if(deferredInstall){deferredInstall.prompt();deferredInstall=null}};
 if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
+window.addEventListener("pagehide",stopBarcodeScanner);
 loadLocal();renderAll();if(state.apiUrl)sync();

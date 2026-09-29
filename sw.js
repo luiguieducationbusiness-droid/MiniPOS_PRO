@@ -1,4 +1,50 @@
-const CACHE="minipos-v1";const ASSETS=["./","./index.html","./styles.css","./app.js","./manifest.webmanifest","./icon.svg"];
-self.addEventListener("install",e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS))));
-self.addEventListener("activate",e=>e.waitUntil(self.clients.claim()));
-self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(c=>c||fetch(e.request).then(r=>{const copy=r.clone();caches.open(CACHE).then(x=>x.put(e.request,copy));return r}).catch(()=>caches.match("./index.html"))))});
+const CACHE = "minipos-v3";
+const ASSETS = ["./", "./index.html", "./styles.css", "./scanner.css", "./app.js", "./manifest.webmanifest", "./icon.svg"];
+
+self.addEventListener("install", event => {
+	event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));
+});
+
+self.addEventListener("activate", event => {
+	event.waitUntil(
+		caches.keys()
+			.then(keys => Promise.all(keys.filter(key => key.startsWith("minipos-") && key !== CACHE).map(key => caches.delete(key))))
+			.then(() => self.clients.claim())
+	);
+});
+
+self.addEventListener("fetch", event => {
+	const request = event.request;
+	if (request.method !== "GET") return;
+
+	const requestUrl = new URL(request.url);
+	const scopeUrl = new URL(self.registration.scope);
+	if (requestUrl.origin !== scopeUrl.origin) return;
+
+	const isAppAsset = ASSETS.some(asset => new URL(asset, scopeUrl).pathname === requestUrl.pathname);
+	if (!isAppAsset && request.mode !== "navigate") return;
+
+	event.respondWith((async () => {
+		const cache = await caches.open(CACHE);
+		if (request.mode === "navigate") {
+			try {
+				const response = await fetch(request);
+				if (response.ok) await cache.put(request, response.clone());
+				return response;
+			} catch {
+				return (await cache.match("./index.html")) || Response.error();
+			}
+		}
+
+		const cached = await cache.match(request);
+		if (cached) return cached;
+
+		try {
+			const response = await fetch(request);
+			if (response.ok) await cache.put(request, response.clone());
+			return response;
+		} catch {
+			return Response.error();
+		}
+	})());
+});

@@ -14,7 +14,7 @@ Sistema base de punto de venta para pequeños negocios. Está diseñado para des
 - Reportes de ventas, ticket promedio, valor del inventario y medios de pago.
 - PWA instalable.
 - Caché/offline para la interfaz y datos locales mientras no haya sincronización.
-- Lectura de códigos mediante BarcodeDetector cuando el navegador/dispositivo lo soporte.
+- Escaneo de códigos en vivo desde Inventario y Punto de venta; ZXing se descarga la primera vez si el navegador no incluye BarcodeDetector.
 - Google Sheets como base de datos sencilla, sin servidor propio.
 
 ## Estructura
