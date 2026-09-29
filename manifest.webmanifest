@@ -1,0 +1,10 @@
+{
+  "name":"MiniPOS Perú",
+  "short_name":"MiniPOS",
+  "start_url":".",
+  "display":"standalone",
+  "background_color":"#f5f7fb",
+  "theme_color":"#0f172a",
+  "description":"Punto de venta e inventario para pequeños negocios conectado a Google Sheets.",
+  "icons":[{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}
