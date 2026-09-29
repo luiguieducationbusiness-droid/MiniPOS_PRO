@@ -36,15 +36,12 @@ self.addEventListener("fetch", event => {
 			}
 		}
 
-		const cached = await cache.match(request);
-		if (cached) return cached;
-
 		try {
 			const response = await fetch(request);
 			if (response.ok) await cache.put(request, response.clone());
 			return response;
 		} catch {
-			return Response.error();
+			return (await cache.match(request)) || Response.error();
 		}
 	})());
 });

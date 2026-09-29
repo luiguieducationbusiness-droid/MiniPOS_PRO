@@ -5,20 +5,36 @@ let deferredInstall=null,scannerSession=null,zxingLoad=null,paymentKind="cash",a
 function money(n){return `S/ ${Number(n||0).toFixed(2)}`}
 function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2600)}
 function saveLocal(){localStorage.setItem("minipos_products",JSON.stringify(state.products));localStorage.setItem("minipos_customers",JSON.stringify(state.customers));localStorage.setItem("minipos_movements",JSON.stringify(state.movements));localStorage.setItem("minipos_sales",JSON.stringify(state.sales))}
-function loadLocal(){["products","customers","movements","sales"].forEach(k=>state[k]=JSON.parse(localStorage.getItem("minipos_"+k)||"[]"))}
+function loadLocal(){
+  let recovered=false;
+  ["products","customers","movements","sales"].forEach(k=>{
+    const key="minipos_"+k;
+    try{
+      const value=JSON.parse(localStorage.getItem(key)||"[]");
+      if(Array.isArray(value))state[k]=value;
+      else{state[k]=[];localStorage.removeItem(key);recovered=true}
+    }catch{
+      state[k]=[];
+      localStorage.removeItem(key);
+      recovered=true;
+    }
+  });
+  if(recovered)toast("Se descartaron datos locales dañados. Sincroniza para recuperarlos.");
+}
 async function api(action,payload={}){
   if(!state.apiUrl) throw new Error("Configura primero la URL de Apps Script.");
   const url=new URL(state.apiUrl);url.searchParams.set("action",action);
-  if(action==="getData"){const r=await fetch(url);return r.json()}
-  const r=await fetch(state.apiUrl,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action,payload})});
+  const r=action==="getData"?await fetch(url):await fetch(state.apiUrl,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action,payload})});
+  if(!r.ok)throw new Error(`Error HTTP ${r.status}`);
   return r.json();
 }
 async function sync(){
   if(!state.apiUrl){updateConnection();return}
   try{
     const d=await api("getData");
-    if(d.ok){state.products=d.products||[];state.customers=d.customers||[];state.movements=d.movements||[];state.sales=d.sales||[];saveLocal();renderAll();$("#kpiSync").textContent=new Date().toLocaleTimeString();$("#statusBox").textContent="Conectado correctamente con Google Sheets.";$("#connectionBadge").className="badge online";$("#connectionBadge").textContent="Google Sheets";}
-  }catch(e){$("#statusBox").textContent="No se pudo sincronizar. Se muestran los datos locales.";toast(e.message)}
+    if(!d.ok)throw new Error(d.message||"Google Apps Script rechazó la sincronización.");
+    state.products=d.products||[];state.customers=d.customers||[];state.movements=d.movements||[];state.sales=d.sales||[];saveLocal();renderAll();$("#kpiSync").textContent=new Date().toLocaleTimeString();$("#statusBox").textContent="Conectado correctamente con Google Sheets.";$("#connectionBadge").className="badge online";$("#connectionBadge").textContent="Google Sheets";
+  }catch(e){$("#statusBox").textContent=`No se pudo sincronizar: ${e.message} Se muestran los datos locales.`;$("#connectionBadge").className="badge offline";$("#connectionBadge").textContent="Sin conexión";toast(e.message)}
 }
 function updateConnection(){const ok=!!state.apiUrl;$("#connectionBadge").className="badge "+(ok?"online":"offline");$("#connectionBadge").textContent=ok?"Configurado":"Sin configurar";$("#apiUrl").value=state.apiUrl;$("#businessName").value=state.businessName}
 function nav(view){if(scannerSession)stopBarcodeScanner();["#saleScanner","#productScanner"].forEach(id=>$(id).hidden=true);$$(".view").forEach(x=>x.classList.remove("active"));$("#"+view).classList.add("active");$$(".nav").forEach(x=>x.classList.toggle("active",x.dataset.view===view));renderAll()}
