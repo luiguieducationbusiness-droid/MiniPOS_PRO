@@ -1,5 +1,5 @@
-const CACHE = "minipos-v3";
-const ASSETS = ["./", "./index.html", "./styles.css", "./scanner.css", "./app.js", "./manifest.webmanifest", "./icon.svg"];
+const CACHE = "minipos-v4";
+const ASSETS = ["./", "./index.html", "./styles.css", "./scanner.css", "./payment.css", "./app.js", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", event => {
 	event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));

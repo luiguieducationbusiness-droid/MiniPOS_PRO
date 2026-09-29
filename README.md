@@ -5,7 +5,8 @@ Sistema base de punto de venta para pequeños negocios. Está diseñado para des
 ## Incluye
 
 - Punto de venta con carrito.
-- Métodos de pago: efectivo, Yape, Plin, tarjeta, transferencia bancaria y POS.
+- Métodos de pago: efectivo, Yape, Plin, tarjeta, transferencia bancaria, POS y otro.
+- Pantalla de cobro con monto, cálculo de vuelto y QR comercial configurable para billeteras digitales.
 - Inventario con SKU/código, categoría, precio, stock y stock mínimo.
 - Ingreso de mercadería con proveedor y costo.
 - Registro de ventas y detalle de ventas.
@@ -50,6 +51,7 @@ Sistema base de punto de venta para pequeños negocios. Está diseñado para des
 5. Pega la URL `/exec` de Apps Script.
 6. Guarda.
 7. Presiona `Sincronizar`.
+8. Para mostrar el QR al cobrar, carga la imagen del QR del negocio desde Configuración. La imagen se conserva únicamente en ese dispositivo.
 
 ## Estructura del Sheet
 
@@ -65,7 +67,7 @@ Sistema base de punto de venta para pequeños negocios. Está diseñado para des
 
 ## Importante sobre pagos y SUNAT
 
-Los métodos Yape, Plin, efectivo, tarjeta, transferencia y POS se registran como método de pago. Este proyecto base NO confirma automáticamente una transferencia ni realiza conciliación bancaria.
+Los métodos Yape, Plin, efectivo, tarjeta, transferencia, POS y otro se registran como método de pago. El QR es la imagen estática del negocio: el cliente debe ingresar el monto en su billetera y el cajero debe verificar el abono antes de confirmar. Este proyecto base NO confirma automáticamente una transferencia ni realiza conciliación bancaria.
 
 Tampoco genera por sí solo comprobantes electrónicos SUNAT. Para una versión empresarial se debe integrar un proveedor/API de facturación electrónica y contemplar las obligaciones tributarias aplicables al negocio.
 

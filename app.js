@@ -1,6 +1,6 @@
 const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
 const state={products:[],customers:[],movements:[],sales:[],cart:[],apiUrl:localStorage.getItem("minipos_api")||"",businessName:localStorage.getItem("minipos_name")||"Mi negocio"};
-let deferredInstall=null,scannerSession=null,zxingLoad=null;
+let deferredInstall=null,scannerSession=null,zxingLoad=null,paymentKind="cash",activePayment="Efectivo",walletQr=localStorage.getItem("minipos_wallet_qr")||"";
 
 function money(n){return `S/ ${Number(n||0).toFixed(2)}`}
 function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2600)}
@@ -51,13 +51,30 @@ function changeQty(i,v){state.cart[i].qty=Math.max(1,Math.min(Number(v),state.ca
 function removeCart(i){state.cart.splice(i,1);renderCart()}
 window.addToCart=addToCart;window.changeQty=changeQty;window.removeCart=removeCart;
 
-async function completeSale(){
+function saleTotal(){return Math.max(0,state.cart.reduce((a,x)=>a+x.price*x.qty,0)-Number($("#discount").value||0))}
+function updatePaymentView(){
+ const total=saleTotal(),received=Number($("#cashReceived").value||0);
+ $("#paymentAmount").textContent=money(total);$("#paymentSummaryTotal").textContent=money(total);
+ $("#paymentItemCount").textContent=`${state.cart.reduce((sum,item)=>sum+item.qty,0)} productos`;
+ $("#cashChange").textContent=money(Math.max(0,received-total));
+ $("#cashFields").hidden=paymentKind!=="cash";$("#walletFields").hidden=paymentKind!=="wallet";$("#otherFields").hidden=paymentKind!=="other";
+ $$("[data-payment-kind]").forEach(button=>button.setAttribute("aria-pressed",String(button.dataset.paymentKind===paymentKind)));
+ $$("[data-wallet]").forEach(button=>button.setAttribute("aria-pressed",String(button.dataset.wallet===activePayment)));
+ $("#walletQrImage").hidden=!walletQr;$("#walletQrEmpty").hidden=!!walletQr;if(walletQr)$("#walletQrImage").src=walletQr;
+}
+function completeSale(){
  if(!state.cart.length)return toast("Agrega productos al carrito.");
- const total=Math.max(0,state.cart.reduce((a,x)=>a+x.price*x.qty,0)-Number($("#discount").value||0));
- const sale={id:"V-"+Date.now(),date:new Date().toISOString(),items:state.cart.map(x=>({code:x.code,name:x.name,qty:x.qty,price:x.price})),total,payment:$("#paymentMethod").value,customer:$("#saleCustomer").value,reference:$("#paymentRef").value};
+ paymentKind="cash";activePayment="Efectivo";$("#cashReceived").value=saleTotal().toFixed(2);$("#paymentRef").value="";$("#paymentDialog").showModal();updatePaymentView();
+}
+async function confirmPayment(){
+ const total=saleTotal(),received=Number($("#cashReceived").value||0);
+ if(paymentKind==="cash"&&received<total)return toast("El monto recibido no cubre el total de la venta.");
+ activePayment=paymentKind==="other"?$("#otherPaymentMethod").value:paymentKind==="wallet"?activePayment:"Efectivo";
+ const sale={id:"V-"+Date.now(),date:new Date().toISOString(),items:state.cart.map(x=>({code:x.code,name:x.name,qty:x.qty,price:x.price})),total,payment:activePayment,customer:$("#saleCustomer").value,reference:$("#paymentRef").value};
+ const confirmButton=$("#confirmPayment");confirmButton.disabled=true;
  try{if(state.apiUrl){const r=await api("sale",sale);if(!r.ok)throw Error(r.message||"Error al registrar")}
- state.cart.forEach(x=>{const p=state.products.find(p=>String(p.code)===String(x.code));if(p)p.stock-=x.qty});state.sales.push(...(state.apiUrl?[]:[sale]));saveLocal();state.cart=[];$("#discount").value=0;$("#paymentRef").value="";toast("Venta registrada correctamente.");renderAll();if(state.apiUrl)sync();
- }catch(e){toast(e.message)}
+ state.cart.forEach(x=>{const p=state.products.find(p=>String(p.code)===String(x.code));if(p)p.stock-=x.qty});state.sales.push(...(state.apiUrl?[]:[sale]));saveLocal();state.cart=[];$("#discount").value=0;$("#paymentRef").value="";$("#paymentDialog").close();toast("Venta registrada correctamente.");renderAll();if(state.apiUrl)sync();
+ }catch(e){toast(e.message)}finally{confirmButton.disabled=false}
 }
 async function registerProduct(data){
  const p={code:data.code.trim(),name:data.name.trim(),category:data.category.trim(),price:Number(data.price),stock:Number(data.stock),minStock:Number(data.minStock||0)};
@@ -120,9 +137,13 @@ function scanProduct(){
 
 $$(".nav").forEach(b=>b.onclick=()=>nav(b.dataset.view));$$("[data-go]").forEach(b=>b.onclick=()=>nav(b.dataset.go));
 $("#newProductBtn").onclick=()=>$("#productDialog").showModal();$("#newCustomerBtn").onclick=()=>$("#customerDialog").showModal();$("#scanBtn").onclick=scanSale;$("#productScanBtn").onclick=scanProduct;$("#closeSaleScanner").onclick=()=>closeBarcodeScanner("saleScanner");$("#closeProductScanner").onclick=()=>closeBarcodeScanner("productScanner");$("#addSearchBtn").onclick=searchAdd;$("#productSearch").addEventListener("keydown",e=>{if(e.key==="Enter")searchAdd()});$("#discount").oninput=renderCart;$("#completeSale").onclick=completeSale;$("#clearCart").onclick=()=>{state.cart=[];renderCart()};$("#registerEntry").onclick=registerEntry;$("#inventorySearch").oninput=renderProducts;$("#refreshBtn").onclick=sync;
+$("#confirmPayment").onclick=confirmPayment;$("#cashReceived").oninput=updatePaymentView;$("#cancelPayment").onclick=()=>$("#paymentDialog").close();$("#closePayment").onclick=()=>$("#paymentDialog").close();
+$$('[data-payment-kind]').forEach(button=>button.onclick=()=>{paymentKind=button.dataset.paymentKind;if(paymentKind==="wallet"&&!['Yape','Plin'].includes(activePayment))activePayment="Yape";updatePaymentView()});$$('[data-wallet]').forEach(button=>button.onclick=()=>{activePayment=button.dataset.wallet;updatePaymentView()});
 $("#productForm").onsubmit=e=>{e.preventDefault();registerProduct(Object.fromEntries(new FormData(e.target)))};$("#customerForm").onsubmit=e=>{e.preventDefault();registerCustomer(Object.fromEntries(new FormData(e.target)))};
 $("#saveSettings").onclick=()=>{state.apiUrl=$("#apiUrl").value.trim();state.businessName=$("#businessName").value.trim()||"Mi negocio";localStorage.setItem("minipos_api",state.apiUrl);localStorage.setItem("minipos_name",state.businessName);updateConnection();toast("Configuración guardada.");sync()};
+$("#walletQrInput").onchange=event=>{const file=event.target.files[0];if(!file)return;if(!file.type.startsWith("image/"))return toast("Selecciona una imagen para el QR.");if(file.size>1500000){event.target.value="";return toast("La imagen debe pesar menos de 1.5 MB.")}const reader=new FileReader();reader.onload=()=>{try{localStorage.setItem("minipos_wallet_qr",reader.result);walletQr=reader.result;$("#walletQrSettingsImage").src=walletQr;$("#walletQrSettings").hidden=false;updatePaymentView();toast("QR guardado en este dispositivo.")}catch{toast("No se pudo guardar la imagen. Prueba con un archivo más pequeño.")}};reader.readAsDataURL(file)};
+$("#removeWalletQr").onclick=()=>{localStorage.removeItem("minipos_wallet_qr");walletQr="";$("#walletQrInput").value="";$("#walletQrSettings").hidden=true;updatePaymentView();toast("QR eliminado.")};
 window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredInstall=e;$("#installBtn").classList.remove("hidden")});$("#installBtn").onclick=async()=>{if(deferredInstall){deferredInstall.prompt();deferredInstall=null}};
 if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
 window.addEventListener("pagehide",stopBarcodeScanner);
-loadLocal();renderAll();if(state.apiUrl)sync();
+loadLocal();renderAll();if(walletQr){$("#walletQrSettingsImage").src=walletQr;$("#walletQrSettings").hidden=false}if(state.apiUrl)sync();

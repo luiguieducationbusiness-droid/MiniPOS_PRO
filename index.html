@@ -9,6 +9,7 @@
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="scanner.css">
+  <link rel="stylesheet" href="payment.css">
   <title>MiniPOS Perú</title>
 </head>
 <body>
@@ -71,12 +72,8 @@
             <div class="total-line"><span>Subtotal</span><strong id="subtotal">S/ 0.00</strong></div>
             <div class="total-line"><span>Descuento</span><input id="discount" type="number" min="0" step=".01" value="0"></div>
             <div class="total-line total"><span>Total</span><strong id="grandTotal">S/ 0.00</strong></div>
-            <label>Método de pago<select id="paymentMethod">
-              <option>Efectivo</option><option>Yape</option><option>Plin</option><option>Tarjeta</option><option>Transferencia bancaria</option><option>POS</option>
-            </select></label>
             <label>Cliente<select id="saleCustomer"><option value="">Público general</option></select></label>
-            <label>Referencia / operación<input id="paymentRef" placeholder="Opcional"></label>
-            <button id="completeSale" class="primary full">Cobrar y registrar</button>
+            <button id="completeSale" class="primary full">Continuar al cobro</button>
             <button id="clearCart" class="ghost full">Vaciar carrito</button>
           </article>
         </div>
@@ -131,12 +128,73 @@
             <input id="apiUrl" placeholder="https://script.google.com/macros/s/.../exec">
           </label>
           <label>Nombre del negocio<input id="businessName" placeholder="Mi negocio"></label>
+          <label>QR de billetera digital
+            <input id="walletQrInput" type="file" accept="image/*">
+            <small>Sube la imagen QR de Yape o Plin que usarás para recibir pagos. Se guarda solo en este dispositivo.</small>
+          </label>
+          <div id="walletQrSettings" class="qr-settings" hidden>
+            <img id="walletQrSettingsImage" alt="Vista previa del QR guardado">
+            <button id="removeWalletQr" class="ghost" type="button">Quitar QR</button>
+          </div>
           <button id="saveSettings" class="primary">Guardar configuración</button>
           <div class="notice"><strong>Importante:</strong> la PWA no necesita credenciales de Google. La conexión se realiza mediante el Web App de Apps Script. Configura el acceso del script según las instrucciones del README.</div>
         </article>
       </section>
     </main>
   </div>
+
+  <dialog id="paymentDialog" class="payment-dialog">
+    <section class="payment-screen" aria-labelledby="paymentTitle">
+      <header class="payment-header">
+        <div><p class="eyebrow">PUNTO DE VENTA</p><h2 id="paymentTitle">Cobrar venta</h2></div>
+        <button id="closePayment" class="payment-close" type="button" aria-label="Cerrar">×</button>
+      </header>
+      <div class="payment-due"><span>Monto a pagar</span><strong id="paymentAmount">S/ 0.00</strong></div>
+      <div class="payment-columns">
+        <div class="payment-options">
+          <span class="payment-label">Método de pago</span>
+          <div class="payment-categories" role="group" aria-label="Tipo de pago">
+            <button type="button" class="payment-category" data-payment-kind="cash" aria-pressed="true"><span class="payment-icon">S/</span><span>Efectivo</span></button>
+            <button type="button" class="payment-category" data-payment-kind="wallet" aria-pressed="false"><span class="payment-icon">▦</span><span>Billetera QR</span></button>
+            <button type="button" class="payment-category" data-payment-kind="other" aria-pressed="false"><span class="payment-icon">•••</span><span>Otros</span></button>
+          </div>
+          <div id="cashFields" class="payment-detail">
+            <label for="cashReceived">Recibido del cliente</label>
+            <div class="currency-input"><span>S/</span><input id="cashReceived" type="number" min="0" step=".01" inputmode="decimal"></div>
+            <div class="change-line"><span>Vuelto</span><strong id="cashChange">S/ 0.00</strong></div>
+          </div>
+          <div id="walletFields" class="payment-detail" hidden>
+            <span class="payment-label">Selecciona la billetera</span>
+            <div class="wallet-options" role="group" aria-label="Billetera digital">
+              <button type="button" class="wallet-option" data-wallet="Yape" aria-pressed="true">Yape</button>
+              <button type="button" class="wallet-option" data-wallet="Plin" aria-pressed="false">Plin</button>
+            </div>
+            <div class="wallet-qr" id="walletQrPanel" aria-live="polite">
+              <img id="walletQrImage" alt="Código QR de pago del negocio" hidden>
+              <div id="walletQrEmpty"><strong>QR del negocio</strong><span>Carga tu QR en Configuración o solicita el pago con tu QR impreso.</span></div>
+            </div>
+            <p class="payment-note">Confirma el abono en la aplicación de tu billetera antes de registrar la venta.</p>
+          </div>
+          <div id="otherFields" class="payment-detail" hidden>
+            <label for="otherPaymentMethod">Selecciona el método</label>
+            <select id="otherPaymentMethod"><option>Tarjeta</option><option>Transferencia bancaria</option><option>POS</option><option>Otro</option></select>
+          </div>
+          <label class="reference-field" for="paymentRef">Referencia / operación <span>(opcional)</span></label>
+          <input id="paymentRef" placeholder="N.º de operación o nota">
+        </div>
+        <aside class="payment-summary">
+          <span>Detalle de la venta</span>
+          <div id="paymentItemCount">0 productos</div>
+          <div class="payment-summary-total"><span>Total a cobrar</span><strong id="paymentSummaryTotal">S/ 0.00</strong></div>
+          <p>Revisa el monto y el método antes de confirmar.</p>
+        </aside>
+      </div>
+      <footer class="payment-actions">
+        <button id="cancelPayment" type="button" class="secondary">Volver a la venta</button>
+        <button id="confirmPayment" type="button" class="primary">Confirmar pago</button>
+      </footer>
+    </section>
+  </dialog>
 
   <dialog id="productDialog">
     <form method="dialog" id="productForm" class="modal">
